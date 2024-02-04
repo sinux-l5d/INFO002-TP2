@@ -20,6 +20,16 @@ J'écrit les informations dans les bits de poids faible de l'image, en commença
 
 C'est imparfait : on peut modifier le nom qui figure sur le diplôme sans que ça change les informations cachées. En revanche, le nom qui figure sur le diplôme ne sera plus le même que celui obtenu avec la sous-commande `verify_diploma`. Dans un monde parfait, j'aurais eu le temps d'écrire les informations dans la zone ou les informations du diplôme sont écrites.
 
+## Intêret
+
+La stéganographie n'est pas réalisable dans ce cas car un tel diplôme est voué à être imprimé, ce qui ferait potentiellement perdre de l'information (et sinon au moment de scanner).
+L'idée d'une signature visuel (qr code, chaîne de caractère) serait plus pertinente car détectable avec une librairie de qr code/un OCR.
+
+## Choix techniques
+
+J'ai choisi python pour le cadre du TP, mais ça ne serait pas mon choix pour une application de production (pour un tas de raison de portabilité et de temps de calcul).
+J'utilise Crytodome pour toute fonction cryptographique, un fork maintenue de pycrypto. J'utilise une clé asymétrique avec AES 256 (scryptAndAES256-CBC comme recommandé par Cryptodome) pour signer.
+
 ## Signature
 
 Pour signer, il faut une clé. Elle peut être générée avec la commande suivante :
