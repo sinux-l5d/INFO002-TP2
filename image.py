@@ -92,9 +92,9 @@ def verify(msg: str, pubkey: str, signature: str | bytes) -> bool:
         return False
 
 
-def diploma(name: str, moyenne: int, privkeypath="./diploma.priv.pem") -> Image:
+def diploma(name: str, moyenne: int, diplome_name="master en alchimie", privkeypath="./diploma.priv.pem") -> Image:
     """Create a diploma"""
-    DIPLOMA_NAME = "master en alchimie"
+    DIPLOMA_NAME = diplome_name
     date = datetime.now().date().strftime("%d/%m/%Y")
 
     base = diplome.generate_diploma(
@@ -102,8 +102,8 @@ def diploma(name: str, moyenne: int, privkeypath="./diploma.priv.pem") -> Image:
     to_sign = DIPLOMA_NAME + name.lower().replace(" ", "") + date + str(moyenne)
     try:
         signature = sign(to_sign, privkeypath, askpass())
-    except ValueError:
-        print("Invalid passphrase")
+    except ValueError as e:
+        print("Invalid passphrase: ", e)
         return
 
     infos = diplome.picklestr(DIPLOMA_NAME, name, date, moyenne, signature)
@@ -116,8 +116,12 @@ def diploma(name: str, moyenne: int, privkeypath="./diploma.priv.pem") -> Image:
 
 def verify_diploma(img: Image, length: int, pubkey: str = "./diploma.pub.pem") -> bool:
     """Verify a diploma"""
-    diplomename, name, date, moyenne, signature = diplome.unpicklestr(
-        unveil(img, length))
+    try:
+        diplomename, name, date, moyenne, signature = diplome.unpicklestr(
+            unveil(img, length))
+    except:
+        print("Could not unveil the diploma infos")
+        return False
     print("Diploma:", diplomename)
     print("Name:", name)
     print("Date:", date)
@@ -135,11 +139,11 @@ def verify_diploma(img: Image, length: int, pubkey: str = "./diploma.pub.pem") -
 def askpass(confirm: bool = False) -> str:
     """Ask for a passphrase"""
     if not confirm:
-        return input("Enter passphrase: ")
+        return input("Enter passphrase: ").strip()
     passphrase = ""
     while passphrase == "":
-        prompt = input("Enter passphrase: ")
-        prompt2 = input("Enter passphrase again: ")
+        prompt = input("Enter passphrase: ").strip()
+        prompt2 = input("Enter passphrase again: ").strip()
         if prompt == prompt2:
             passphrase = prompt
         else:
@@ -172,7 +176,7 @@ def main(args):
         else:
             print("Signature is invalid")
     elif args.command == 'diploma':
-        img = diploma(args.student, args.moyenne)
+        img = diploma(args.student, args.moyenne, args.name, args.privkey)
         if img:
             img.save(args.output)
     elif args.command == 'verify_diploma':
@@ -221,6 +225,8 @@ if __name__ == "__main__":
 
     diploma_parser = subparsers.add_parser(
         'diploma', help='Generate a diploma')
+    diploma_parser.add_argument(
+        "--name", help="Name of the diploma", required=False, default="master en alchimie")
     diploma_parser.add_argument(
         "--student", help="Student obtaining the diploma", required=True)
     diploma_parser.add_argument(
