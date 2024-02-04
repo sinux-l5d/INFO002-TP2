@@ -5,6 +5,9 @@ import argparse
 from Cryptodome.PublicKey import RSA
 from Cryptodome.Signature import pkcs1_15
 from Cryptodome.Hash import SHA256
+import diplome
+from datetime import datetime
+import base64
 
 
 def walk(width, height):
@@ -15,9 +18,12 @@ def walk(width, height):
 
 
 def hide(img: Image, msg: str) -> Image:
-    """Hide a message in an image"""
+    """Hide a message in an image
+        This function doesn't check if the message fits in the image!
+    """
     nimg = img.copy()
     px = nimg.load()
+
     for x, y in walk(img.width, img.height):
         if x + y * img.width >= len(msg):
             break
@@ -34,6 +40,7 @@ def unveil(img: Image, length: int) -> str:
     """Unveil a message from an image"""
     msg = ""
     px = img.load()
+
     for x, y in walk(img.width, img.height):
         if x + y * img.width >= length:
             break
@@ -43,7 +50,7 @@ def unveil(img: Image, length: int) -> str:
     return msg
 
 
-def genkey(name: str, passphrase: str):
+def genkey(passphrase: str, name: str = "diploma"):
     """Generate a key for signing operations"""
     key = RSA.generate(4096)
     private_key = key.export_key(
@@ -55,26 +62,74 @@ def genkey(name: str, passphrase: str):
         f.write(public_key)
 
 
-def sign(msg: str, privkey: str, passphrase: str, output: str):
+def sign(msg: str, privkey: str, passphrase: str) -> bytes:
     """Sign a message with a private key"""
     with open(privkey, "r") as f:
         privkey = RSA.import_key(f.read(), passphrase=passphrase)
-    signature = pkcs1_15.new(privkey).sign(SHA256.new(msg.encode()))
-    with open(output, "wb") as f:
-        f.write(signature)
+    return pkcs1_15.new(privkey).sign(SHA256.new(msg.encode()))
 
 
-def verify(msg: str, pubkey: str, signature: str) -> bool:
+def verify(msg: str, pubkey: str, signature: str | bytes) -> bool:
     """Verify a message with a public key"""
     with open(pubkey, "r") as f:
         pubkey = RSA.import_key(f.read())
-    with open(signature, "rb") as f:
-        sig = f.read()
+    if isinstance(signature, str):
+        try:
+            with open(signature, "rb") as f:
+                sig = f.read()
+        except (FileNotFoundError, ValueError):
+            print("Invalid signature file")
+            return False
+    elif isinstance(signature, bytes):
+        sig = signature
+    else:
+        print("Invalid signature type")
+        return False
     try:
         pkcs1_15.new(pubkey).verify(SHA256.new(msg.encode()), sig)
         return True
     except (ValueError, TypeError):
         return False
+
+
+def diploma(name: str, moyenne: int, privkeypath="./diploma.priv.pem") -> Image:
+    """Create a diploma"""
+    DIPLOMA_NAME = "master en alchimie"
+    date = datetime.now().date().strftime("%d/%m/%Y")
+
+    base = diplome.generate_diploma(
+        DIPLOMA_NAME, name, date, moyenne)
+    to_sign = DIPLOMA_NAME + name.lower().replace(" ", "") + date + str(moyenne)
+    try:
+        signature = sign(to_sign, privkeypath, askpass())
+    except ValueError:
+        print("Invalid passphrase")
+        return
+
+    infos = diplome.picklestr(DIPLOMA_NAME, name, date, moyenne, signature)
+    base = diplome.write_length(base, len(infos))
+    signed = hide(base, infos)
+    print("Infos:", infos)
+    print("Length:", len(infos))
+    return signed
+
+
+def verify_diploma(img: Image, length: int, pubkey: str = "./diploma.pub.pem") -> bool:
+    """Verify a diploma"""
+    diplomename, name, date, moyenne, signature = diplome.unpicklestr(
+        unveil(img, length))
+    print("Diploma:", diplomename)
+    print("Name:", name)
+    print("Date:", date)
+    print("Moyenne:", moyenne)
+    print("Signature:", signature)
+    to_sign = diplomename + name.lower().replace(" ", "") + date + str(moyenne)
+    ok = verify(to_sign, pubkey, signature)
+    if not ok:
+        print("SIGNATURE IS INVALID!")
+    else:
+        print("Signature is valid, but check the infos are the same as expected")
+    return ok
 
 
 def askpass(confirm: bool = False) -> str:
@@ -101,19 +156,28 @@ def main(args):
         nimg.save(args.output)
     elif args.command == 'unveil':
         img = Image.open(args.image)
-        msg = unveil(img, args.length)
+        msg = unveil(img)
         print(msg)
     elif args.command == 'genkey':
         passphrase = askpass(True)
-        genkey(args.name, passphrase)
+        genkey(passphrase, args.name)
     elif args.command == 'sign':
         passphrase = askpass()
-        sign(args.message, args.key, passphrase, args.output)
+        signature = sign(args.message, args.key, passphrase)
+        with open(args.output, "wb") as f:
+            f.write(signature)
     elif args.command == 'verify':
         if verify(args.message, args.key, args.signature):
             print("Signature is valid")
         else:
             print("Signature is invalid")
+    elif args.command == 'diploma':
+        img = diploma(args.student, args.moyenne)
+        if img:
+            img.save(args.output)
+    elif args.command == 'verify_diploma':
+        img = Image.open(args.image)
+        verify_diploma(img, args.length, args.key)
 
 
 if __name__ == "__main__":
@@ -131,13 +195,11 @@ if __name__ == "__main__":
         'unveil', help='Unveil message from image')
     unveil_parser.add_argument(
         "--image", help="Image to process", required=True)
-    unveil_parser.add_argument(
-        "--length", type=int, help="Length of message", required=True)
 
     genkey_parser = subparsers.add_parser(
         'genkey', help='Generate key for signing operations')
     genkey_parser.add_argument(
-        "--name", help="Name of the key used to generate files", required=True)
+        "--name", help="Name of the key", required=False, default="diploma")
 
     sign_parser = subparsers.add_parser(
         'sign', help='Sign a message with a private key')
@@ -156,6 +218,26 @@ if __name__ == "__main__":
         "--key", help="Public key to use", required=True)
     verify_parser.add_argument(
         "--signature", help="Signature file to verify", required=True)
+
+    diploma_parser = subparsers.add_parser(
+        'diploma', help='Generate a diploma')
+    diploma_parser.add_argument(
+        "--student", help="Student obtaining the diploma", required=True)
+    diploma_parser.add_argument(
+        "--output", help="Output file (default diploma.png)", required=False, default="diploma.png")
+    diploma_parser.add_argument(
+        "--moyenne", type=float, help="Average grade", required=False, default=10)
+    diploma_parser.add_argument(
+        "--privkey", help="Private key to use", required=False, default="./diploma.priv.pem")
+
+    verify_diploma_parser = subparsers.add_parser(
+        'verify_diploma', help='Verify a diploma')
+    verify_diploma_parser.add_argument(
+        "--image", help="Image to process", required=True)
+    verify_diploma_parser.add_argument(
+        "--key", help="Public key to use", required=False, default="./diploma.pub.pem")
+    verify_diploma_parser.add_argument(
+        "--length", type=int, help="Length written in the top left corner", required=True)
 
     args = parser.parse_args()
     main(args)

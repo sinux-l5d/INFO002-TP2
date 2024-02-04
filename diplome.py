@@ -1,4 +1,6 @@
 from PIL import Image, ImageDraw, ImageFont
+import pickle
+import base64
 
 
 def generate_diploma(diplome="master en alchimie", name="John Doe", date="01/01/1970", moyenne=10):
@@ -36,3 +38,20 @@ def generate_diploma(diplome="master en alchimie", name="John Doe", date="01/01/
               fill=(0, 0, 0, 128), stroke_width=0)
 
     return img
+
+
+def write_length(img, length: int):
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.truetype("sans.ttf", 11)
+    draw.text((20, 20), str(length), font=font, fill=(0, 0, 0, 128))
+    return img
+
+
+def picklestr(diplome, name, date, moyenne, signature):
+    return str(base64.b64encode(pickle.dumps((diplome, name, date, moyenne, signature))))
+
+
+def unpicklestr(pickled: str):
+    if pickled.startswith("b'"):
+        pickled = pickled[2:-1]
+    return pickle.loads(base64.b64decode(pickled))
